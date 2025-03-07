@@ -1,0 +1,76 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import datetime
+from datetime import timedelta
+
+# Today's date and a 50-year horizon, this makes it adaptable to any day
+today = datetime.date.today()
+end = today + datetime.timedelta(days=360 * 50)
+T_d = pd.date_range(start=today, end=end, freq='D')
+T = (T_d - pd.Timestamp(today)) / pd.Timedelta(days=360) 
+
+
+#WARNING
+#WARNING
+#WARNING
+#WARNING
+# WARNING: Update manually from ECB website or other sources. This is All Bonds. I'm trying to find a way to automate this but it will take time
+par = [1.317508, 1.344524, -0.117738, 7.007668, 0.552396, 13.405331] 
+
+
+
+
+def extended_nelson_siegel_correct(T, par):
+    term1 = par[1] * (1 - np.exp(-T / par[4])) / (T / par[4])
+    term2 = par[2] * ((1 - np.exp(-T / par[4])) / (T / par[4]) - np.exp(-T / par[4]))
+    term3 = par[3] * ((1 - np.exp(-T / par[5])) / (T / par[5]) - np.exp(-T / par[5]))
+    return par[0] + term1 + term2 + term3
+yields_extended_correct = extended_nelson_siegel_correct(T, par)
+
+plt.figure(figsize=(10, 6))
+plt.plot(T, yields_extended_correct, label='Extended Nelson-Siegel Yield Curve', color='b')
+plt.xlabel('Time to Maturity in Years')
+plt.ylabel('Yield (%)')
+plt.grid(True)
+plt.show()
+
+
+#WARNING
+#WARNING
+#WARNING
+#THIS USES RNG TO CREATE COUPONS AND MATURITIES. THIS IS A SIMULATION. AN AUTOMATED SCRAPPER WOULD BE NEEDED TO GET REAL DATA FROM
+#BORSAITALIANA OR OTHER SOURCES. THE SCRAPER WILL ONLY NEED TO FILL THE DATABASE BOND_SPEC WITH THE COUPONS AND MATURITIES
+
+np.random.seed(0)
+n_bonds = 100
+coupons = np.random.beta(2, 5, n_bonds) * 0.1
+maturities = np.random.beta(2, 5, n_bonds) * len(T) / 360  
+coupon_frequency = 0.5  
+face_value = 100
+bonds_spec = pd.DataFrame({'coupon': coupons, 'maturity': maturities})
+
+bond_prices = []
+coupon_dates_all = []
+
+for _, row in bonds_spec.iterrows():
+    maturity = row['maturity'] 
+    coupon_rate = row['coupon'] 
+    coupon_payment = coupon_rate * face_value * coupon_frequency
+
+    maturity_date = pd.Timestamp.today() + pd.DateOffset(days=int(maturity * 360))
+    coupon_dates = [maturity_date - pd.DateOffset(months=6 * i) for i in range(int(maturity // coupon_frequency) + 1)][::-1]
+
+    cash_flows = [coupon_payment] * (len(coupon_dates) - 1) + [coupon_payment + face_value]
+
+    bond_price = sum(cf * np.exp(-yields_extended_correct[min(int(t * 360), len(yields_extended_correct) - 1)] / 100 * t)
+                      for cf, t in zip(cash_flows, [(d - pd.Timestamp.today()).days / 360 for d in coupon_dates]))
+    bond_prices.append(bond_price)
+
+plt.figure(figsize=(10, 6))
+plt.scatter(bonds_spec['maturity'], bond_prices, color='b', label='Bond Prices')
+plt.xlabel('Maturity in Years')
+plt.ylabel('Bond Price')
+plt.grid(True)
+plt.legend()
+plt.show()
